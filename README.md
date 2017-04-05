@@ -6,6 +6,7 @@
 
 ## Usage
 
+- 非SVIP用户下载分享文件须先将文件保存到自己网盘以获得较快的下载速度。
 - 插件的设置必须保存之后才会生效。
 - 推荐设置：
     - Set `--rpc-secret=<secret>` if you are using aria2 1.18.4(or higher) with 'JSON-RPC PATH' like http://token:secret@hostname:port/jsonrpc
@@ -19,7 +20,7 @@
 全面支持 Chrome, Firefox, Edge 和 Safari：
 
 * Chrome : Click **Settings** -> **Extensions** -> Check **Developer mode**-> **Load unpacked extension**, navigate to the `chrome` folder, click OK.
-* Firefox : Open **about:debugging** in Firefox, click "Load Temporary Add-on" and navigate to the `chrome` folder, click OK.
+* Firefox : Open **about:debugging** in Firefox, click "Load Temporary Add-on" and navigate to the `chrome` folder, select `manifest.json`, click OK.
 * Safari : Install Chrome or Firefox on Mac.
 * Edge: You need at least Windows 10 build 14342
     1. Open [about:flags](about:flags), Check `Enable extension developer features`, Restart.

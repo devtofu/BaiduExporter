@@ -88,7 +88,7 @@
 	                CORE.showToast("正在获取文件列表... " + completedCount + "/" + (completedCount + folders.length - 1), "MODE_SUCCESS");
 
 	                var path = folders.pop();
-	                $.getJSON("/api/list", {
+	                $.getJSON(window.location.origin + "/api/list", {
 	                    "dir": path,
 	                    "bdstoken": yunData.MYBDSTOKEN,
 	                    "channel": "chunlei",
@@ -118,8 +118,21 @@
 	                });
 	            } else if (files.length != 0) {
 	                CORE.showToast("正在获取下载地址... ", "MODE_SUCCESS");
+	                
+	                var counter = 0;
+	                var tmp_files = {};
+	                for (var fs_id in files) {
+	                    tmp_files[fs_id] = files[fs_id];
+	                    counter++;
+	                    if (counter == 100) {
+	                        setFileData(tmp_files);
+	                        // Reset files and counters
+	                        tmp_files = {};
+	                        counter = 0;
+	                    }
+	                }
+	                setFileData(tmp_files);
 
-	                setFileData(files);
 	                downloader.reset();
 	            } else {
 	                CORE.showToast("一个文件都没有哦", "MODE_CAUTION");
@@ -156,30 +169,50 @@
 	    var sign = btoa(new Function("return " + yunData.sign2)()(yunData.sign3, yunData.sign1));
 
 	    function setFileData(files) {
-	        $.get("/api/download", {
-	            "type": "dlink",
-	            "fidlist": JSON.stringify(Object.keys(files)),
-	            "timestamp": yunData.timestamp,
-	            "sign": sign,
-	            "bdstoken": yunData.MYBDSTOKEN,
-	            "channel": "chunlei",
-	            "clienttype": 0,
-	            "web": 1,
-	            "app_id": 250528
-	        }, null, "json").done(function(json) {
-	            if (json.errno != 0) {
-	                CORE.showToast("未知错误", "MODE_FAILURE");
-	                console.log(json);
-	                return;
-	            }
+	        if (localStorage.getItem("svip") == "true"){
+	            $.get(window.location.origin + "/api/download", {
+	                "type": "dlink",
+	                "bdstoken": yunData.MYBDSTOKEN,
+	                "fidlist": JSON.stringify(Object.keys(files)),
+	                "timestamp": yunData.timestamp,
+	                "sign": sign, 
+	                "channel": "chunlei",
+	                "clienttype": 0,
+	                "web": 1,
+	                "app_id": 250528
+	            }, null, "json").done(function(json) {
+	                var file_list = [];
+	                if (json.errno != 0) {
+	                    CORE.showToast("未知错误", "MODE_FAILURE");
+	                    console.log(json);
+	                    return;
+	                }
+	                for (var i = 0; i < json.dlink.length; i++) {
+	                    var item = json.dlink[i];
+	                    var path = files[item.fs_id];
+	                    file_list.push({ name: path.substr(pathPrefixLength), link: item.dlink });
+	                }
 
+	                if (MODE == "TXT") {
+	                    CORE.dataBox.show();
+	                    CORE.dataBox.fillData(file_list);
+	                } else {
+	                    var paths = CORE.parseAuth(RPC_PATH);
+	                    var rpc_list = CORE.aria2Data(file_list, paths[0], paths[2]);
+	                    generateParameter(rpc_list);
+	                }
+	            }).fail(function(xhr) {
+	                CORE.showToast("网络请求失败", "MODE_FAILURE");
+	                console.log(JSON.stringify(xhr));
+	            });
+	        } else {
 	            var file_list = [];
-	            for (var i = 0; i < json.dlink.length; i++) {
-	                var item = json.dlink[i];
-	                var path = files[item.fs_id];
-	                file_list.push({ name: path.substr(pathPrefixLength), link: item.dlink });
+	            var restAPIUrl = location.protocol + "//pcs.baidu.com/rest/2.0/pcs/";
+	            for (var key in files) {
+	                var path = files[key];
+	                var dlink = restAPIUrl + 'file?method=download&app_id=250528&path=' + encodeURIComponent(path);
+	                file_list.push({ name: path.substr(pathPrefixLength), link: dlink });
 	            }
-
 	            if (MODE == "TXT") {
 	                CORE.dataBox.show();
 	                CORE.dataBox.fillData(file_list);
@@ -188,10 +221,8 @@
 	                var rpc_list = CORE.aria2Data(file_list, paths[0], paths[2]);
 	                generateParameter(rpc_list);
 	            }
-	        }).fail(function(xhr) {
-	            CORE.showToast("网络请求失败", "MODE_FAILURE");
-	            console.log(xhr);
-	        });
+	        }
+
 	    }
 
 	    window.addEventListener("message", function(event) {
@@ -224,7 +255,7 @@
 	    function getSelected() {
 	        var path = getHashParameter("path");
 	        var level = parseInt(localStorage.getItem("rpc_fold")) || 0;
-	        console.log(level);
+
 	        if (path == undefined || path == "/" || level == -1) {
 	            pathPrefixLength = 1;
 	        } else if (level == 0) {
@@ -272,14 +303,14 @@
 /* 1 */
 /***/ function(module, exports) {
 
-	var CORE = (function () {
-	    const version = "0.8.8";
-	    const update_date = "2016/11/04";
+	var CORE = (function() {
+	    const version = "0.9.4";
+	    const update_date = "2017/03/05";
 	    const defaultUA = "netdisk;5.3.4.5;PC;PC-Windows;5.1.2600;WindowsBaiduYunGuanJia";
 	    const defaultreferer = "http://pan.baidu.com/disk/home";
 	    var cookies = null;
 	    return {
-	        init: function () {
+	        init: function() {
 	            this.startListen();
 	            if (typeof browser != "undefined") {
 	                chrome = browser;
@@ -287,7 +318,7 @@
 	                if (!chrome.storage.sync)
 	                    chrome.storage.sync = chrome.storage.local;
 	            }
-	            chrome.storage.sync.get(null, function (items) {
+	            chrome.storage.sync.get(null, function(items) {
 	                for (var key in items) {
 	                    localStorage.setItem(key, items[key]);
 	                    //console.log(key + items[key]);
@@ -295,7 +326,7 @@
 	            });
 	        },
 	        // 将文件名用单引号包裹，并且反转义文件名中所有单引号，确保按照文件名保存
-	        escapeString: function (str) {
+	        escapeString: function(str) {
 	            if (navigator.platform.indexOf("Win") != -1) {
 	                return str;
 	            }
@@ -304,22 +335,23 @@
 	            return result;
 	        },
 	        //调整元素的位置使元素居中
-	        setCenter: function (obj) {
-	            var screenWidth = $(window).width(), screenHeight = $(window).height();
+	        setCenter: function(obj) {
+	            var screenWidth = $(window).width(),
+	                screenHeight = $(window).height();
 	            var scrolltop = $(document).scrollTop();
 	            var objLeft = (screenWidth - obj.width()) / 2;
 	            var objTop = (screenHeight - obj.height()) / 2 + scrolltop;
 	            obj.css({ left: objLeft + "px", top: objTop + "px" });
 	        },
-	        startListen:function(){
+	        startListen: function() {
 	            function saveSyncData(data, value) {
 	                var obj = new Object();
 	                obj[data] = value;
-	                chrome.storage.sync.set(obj, function () {
+	                chrome.storage.sync.set(obj, function() {
 	                    // console.log(data + ' saved');
 	                });
 	            }
-	            window.addEventListener("message", function (event) {
+	            window.addEventListener("message", function(event) {
 	                if (event.source != window)
 	                    return;
 	                if (event.data.type && (event.data.type == "config_data")) {
@@ -334,20 +366,20 @@
 	                }
 	                if (event.data.type && (event.data.type == "clear_data")) {
 	                    chrome.storage.sync.clear();
-	                }
+	                } 
 	            }, false);
 	        },
-	        sendToBackground:function(method, data, callback){
+	        sendToBackground: function(method, data, callback) {
 	            chrome.runtime.sendMessage({
 	                method: method,
 	                data: data
 	            }, callback);
 	        },
-	        showToast:function(message, type){
+	        showToast: function(message, type) {
 	            window.postMessage({ type: "show_toast", data: { message: message, type: type } }, "*");
 	        },
 	        //获取aria2c的版本号用来测试通信
-	        getVersion: function () {
+	        getVersion: function() {
 	            var data = {
 	                "jsonrpc": "2.0",
 	                "method": "aria2.getVersion",
@@ -371,9 +403,9 @@
 	            });
 	        },
 	        //解析 RPC地址 返回验证数据 和地址
-	        parseAuth: function (url) {
+	        parseAuth: function(url) {
 	            var parseURL = new URL(url);
-	            var auth_str = (parseURL.username != "") ? (parseURL.username + ":" +decodeURI(parseURL.password)) : null;
+	            var auth_str = (parseURL.username != "") ? (parseURL.username + ":" + decodeURI(parseURL.password)) : null;
 	            var options = [];
 	            if (auth_str) {
 	                if (auth_str.indexOf("token:") != 0) {
@@ -382,7 +414,7 @@
 	            }
 	            var hash = parseURL.hash.substr(1);
 	            if (hash) {
-	                hash.split("&").forEach(function (item) {
+	                hash.split("&").forEach(function(item) {
 	                    item = item.split("=");
 	                    if (item[0].length > 1) {
 	                        options.push([item[0], item.length == 2 ? item[1] : "enabled"]);
@@ -395,7 +427,7 @@
 	        },
 	        //导出菜单
 	        addMenu: {
-	            init: function (type) {
+	            init: function(type) {
 	                if ($("#export_menu").length != 0) {
 	                    return $("#export_menu");
 	                }
@@ -408,22 +440,22 @@
 	                    $(".g-dropdown-button").eq(3).after(aria2_btn);
 	                } else if (type == "share") {
 	                    // aria2_btn.addClass("save-button").append('<em class="global-icon-download"></em><b>导出下载</b>');
-	                    $(".bar").css("position","absolute");
+	                    $(".bar").css("position", "absolute");
 	                    aria2_btn.addClass("g-dropdown-button").prepend($("<a>").addClass("g-button").append($("<span>").addClass("g-button-right").append($("<em>").addClass("icon icon-download"), $("<span>").addClass("text").text("导出下载"))));
 	                    $('a[data-button-id="b3"]').parent().prepend(aria2_btn);
 	                } else if (type == "album") {
 	                    aria2_btn.addClass("save-button").append('<em class="global-icon-download"></em><b>导出下载</b>');
 	                    $("#albumFileSaveKey, #emphsizeButton").parent().prepend(aria2_btn);
 	                }
-	                aria2_btn.mouseenter(function () {
+	                aria2_btn.mouseenter(function() {
 	                    aria2_btn.toggleClass("button-open");
 	                    list.show();
 	                });
-	                aria2_btn.mouseleave(function () {
+	                aria2_btn.mouseleave(function() {
 	                    aria2_btn.toggleClass("button-open");
 	                    list.hide();
 	                });
-	                config.click(function () {
+	                config.click(function() {
 	                    if ($("#setting_div").length == 0) {
 	                        CORE.setting.init();
 	                    }
@@ -434,7 +466,7 @@
 	                return aria2_btn;
 	            },
 	            //根据设置更新按钮
-	            update: function () {
+	            update: function() {
 	                $(".rpc_export_list").remove();
 	                var rpc_list = JSON.parse(localStorage.getItem("rpc_list") || '[{"name":"ARIA2 RPC","url":"http://localhost:6800/jsonrpc"}]');
 	                while (rpc_list.length > 0) {
@@ -445,7 +477,7 @@
 	        },
 	        //设置界面
 	        setting: {
-	            init: function () {
+	            init: function() {
 	                var self = this;
 	                var setting_div = document.createElement("div");
 	                setting_div.id = "setting_div";
@@ -459,6 +491,7 @@
 	                    '<table id="setting_div_table" >',
 	                    "<tbody>",
 	                    '<tr><td><label>开启配置同步:</label></td><td><input id="rpc_sync" type="checkbox"></td></tr>',
+	                    '<tr><td><label>我是SVIP会员:</label></td><td><input id="svip" type="checkbox"></td></tr>',
 	                    '<tr><td><label>文件夹结构层数：</label></td><td><input type="text" id="rpc_fold" class="input-small">(默认0表示不保留,-1表示保留完整路径)</td></tr>',
 	                    '<tr><td><label>递归下载延迟：</label></td><td><input type="text" id="rpc_delay" class="input-small">(单位:毫秒)<div style="position:absolute; margin-top: -20px; right: 20px;"><a id="send_test" type="0" href="javascript:;" >测试连接，成功显示版本号。</a></div></td></tr>',
 	                    '<tr><td><label>下载路径:</label></td><td><input type="text" placeholder="只能设置为绝对路径" id="setting_aria2_dir" class="input-large"></td></tr>',
@@ -470,7 +503,7 @@
 	                    "</table>",
 	                    '<div style="margin-top:10px;">',
 	                    '<div id="copyright">© Copyright <a href="https://github.com/acgotaku/BaiduExporter">雪月秋水 </a><br/> Version:' + version + " 更新日期: " + update_date + " </div>",
-	                    '<div style="margin-left:50px; display:inline-block"><a href="javascript:;" id="apply" class="button">应用</a><a href="javascript:;" id="reset" class="button">重置</a></div>',
+	                    '<div style="margin-left:50px; display:inline-block"><a href="javascript:;" id="apply" class="button button-blue">应用</a><a href="javascript:;" id="reset" class="button">重置</a></div>',
 	                    "</div>",
 	                    "</div>"
 	                ];
@@ -478,14 +511,14 @@
 	                document.body.appendChild(setting_div);
 	                $("#setting_divtopmsg").html("");
 	                self.update();
-	                $("#setting_div").on("click", function (event) {
+	                $("#setting_div").on("click", function(event) {
 	                    switch (event.target.id) {
 	                        case "setting_div_close":
 	                            $("#setting_div").hide();
 	                            break;
 	                        case "apply":
 	                            self.save();
-	                            setTimeout(function () {
+	                            setTimeout(function() {
 	                                CORE.addMenu.update();
 	                            }, 60);
 	                            $("#setting_divtopmsg").html("设置已保存.");
@@ -513,7 +546,7 @@
 	                return setting_div.id;
 	            },
 	            //保存配置数据
-	            save: function () {
+	            save: function() {
 	                var config_data = {};
 	                config_data["UA"] = document.getElementById("setting_aria2_useragent_input").value;
 	                config_data["rpc_delay"] = $("#rpc_delay").val();
@@ -522,6 +555,7 @@
 	                config_data["rpc_fold"] = $("#rpc_fold").val();
 	                config_data["rpc_headers"] = $("#setting_aria2_headers").val();
 	                config_data["rpc_sync"] = $("#rpc_sync").prop("checked");
+	                config_data["svip"] =$("#svip").prop("checked");
 	                var rpc_list = [];
 	                for (var i = 0; i < $(".rpc_list").length; i++) {
 	                    var num = i + 1;
@@ -534,7 +568,7 @@
 	                window.postMessage({ type: "config_data", data: config_data }, "*");
 	            },
 	            //根据配置数据 更新 设置菜单
-	            update: function () {
+	            update: function() {
 	                $("#rpc_delay").val((localStorage.getItem("rpc_delay") || "300"));
 	                $("#rpc_fold").val((localStorage.getItem("rpc_fold") || "0"));
 	                var rpc_sync = localStorage.getItem("rpc_sync");
@@ -543,6 +577,16 @@
 	                } else {
 	                    $("#rpc_sync").prop("checked", true);
 	                }
+	                var svip =localStorage.getItem("svip");
+	                if (svip == null){
+	                    svip = (yunData.is_svip == 0) ? "false" : "true";
+	                }
+	                if (svip == "true"){
+	                    $("#svip").prop("checked", true);
+	                } else {
+	                    $("#svip").prop("checked", false);
+	                }
+
 	                $("#setting_aria2_dir").val(localStorage.getItem("rpc_dir"));
 	                $("#setting_aria2_useragent_input").val(localStorage.getItem("UA") || defaultUA);
 	                $("#setting_aria2_referer_input").val(localStorage.getItem("referer") || defaultreferer);
@@ -561,7 +605,7 @@
 	                }
 	            }
 	        },
-	        copyText:function(text){
+	        copyText: function(text) {
 	            var input = document.createElement("textarea");
 	            document.body.appendChild(input);
 	            input.style.position = "fixed";
@@ -579,11 +623,11 @@
 	                this.showToast("拷贝失败 QAQ", "MODE_FAILURE");
 	        },
 	        // names format  [{"url": "http://pan.baidu.com/", "name": "BDUSS"},{"url": "http://pcs.baidu.com/", "name": "pcsett"}]
-	        requestCookies: function (names) {
-	            this.sendToBackground("get_cookies", names, function(value) {cookies = value});
+	        requestCookies: function(names) {
+	            this.sendToBackground("get_cookies", names, function(value) { cookies = value });
 	        },
 	        //获取 http header信息
-	        getHeader: function (type) {
+	        getHeader: function(type) {
 	            var addheader = [];
 	            var UA = localStorage.getItem("UA") || defaultUA;
 	            var headers = localStorage.getItem("headers");
@@ -601,7 +645,7 @@
 	                for (var key in cookies) {
 	                    format_cookies.push(key + "=" + cookies[key]);
 	                }
-	                addheader.push("Cookie: " + format_cookies.join(";"));
+	                addheader.push("Cookie: " + format_cookies.join("; "));
 	            }
 
 	            var header = "";
@@ -617,11 +661,11 @@
 	                return header;
 	            } else if (type == "idm_txt") {
 	                for (i = 0; i < addheader.length; i++) {
-	                    if(addheader[i].indexOf("Referer") != 0){
-	                        header +=  (addheader[i].split(": ")[0].toLowerCase()+": "+addheader[i].split(": ")[1]) + "\n";
+	                    if (addheader[i].indexOf("Referer") != 0) {
+	                        header += (addheader[i].split(": ")[0].toLowerCase() + ": " + addheader[i].split(": ")[1]) + "\n";
 	                    }
 	                }
-	                
+
 	                return header.replace(/\n$/, "");
 	            } else {
 	                return addheader;
@@ -629,7 +673,7 @@
 
 	        },
 	        //把要下载的link和name作为数组对象传过来
-	        aria2Data: function (file_list, token, options) {
+	        aria2Data: function(file_list, token, options) {
 	            var rpc_list = [];
 	            var self = this;
 	            if (file_list.length > 0) {
@@ -639,16 +683,18 @@
 	                        "jsonrpc": "2.0",
 	                        "method": "aria2.addUri",
 	                        "id": new Date().getTime(),
-	                        "params": [[file_list[i].link], {
-	                            "out": file_list[i].name,
-	                            "dir": localStorage.getItem("rpc_dir") || null,
-	                            "header": self.getHeader()
-	                        }]
+	                        "params": [
+	                            [file_list[i].link], {
+	                                "out": file_list[i].name,
+	                                "dir": localStorage.getItem("rpc_dir") || null,
+	                                "header": self.getHeader()
+	                            }
+	                        ]
 	                    };
 	                    console.log(options);
 	                    if (options.length > 0) {
 	                        var params = rpc_data.params[rpc_data.params.length - 1];
-	                        options.forEach(function (item) {
+	                        options.forEach(function(item) {
 	                            params[item[0]] = item[1];
 	                        });
 	                    }
@@ -664,7 +710,7 @@
 	        },
 	        //文本模式的导出数据框
 	        dataBox: {
-	            init: function (type) {
+	            init: function(type) {
 	                if ($("#download_ui").length != 0)
 	                    return this;
 	                var download_ui = $("<div>").attr("id", "download_ui").append('<div class="top"><a href="javascript:;" title="关闭" id="aria2_download_close" class="close"></a><h3><em></em>ARIA2导出</h3></div>');
@@ -679,7 +725,7 @@
 	                // Disable spellcheck and resize for textarea.
 	                $("<textarea>").attr({ "id": "download_link", "wrap": "off", "spellcheck": false }).css({ "width": "100%", "overflow": "scroll", "height": "180px", "resize": "none" }).appendTo(content_ui);
 	                CORE.setCenter($("#download_ui"));
-	                $("#download_ui").on("click", "#aria2_download_close", function () {
+	                $("#download_ui").on("click", "#aria2_download_close", function() {
 	                    // Clean up when closing download dialog.
 	                    if (navigator.msSaveBlob)
 	                        $("#aria2c_btn, #idm_btn, #download_txt_btn").data("href", "")
@@ -691,31 +737,31 @@
 
 	                    download_ui.hide();
 	                });
-	                $("#download_ui").on("click", "#copy_txt_btn", function () {
+	                $("#download_ui").on("click", "#copy_txt_btn", function() {
 	                    CORE.copyText($("#copy_txt_btn").attr("data"));
 	                });
 
 	                // Edge does support `a[download]`, but it ignores the file name, so use `msSaveBlob()` instead
 	                if (navigator.msSaveBlob) {
-	                    $("#aria2c_btn, #idm_btn, #download_txt_btn").click(function (e) {
-	                        e.preventDefault();
-
+	                    $("#aria2c_btn, #idm_btn, #download_txt_btn").data("href", "").click(function(e) {
 	                        var $this = $(this);
-	                        navigator.msSaveBlob(new Blob([$this.data("href")]), $this.attr("download"));
+
+	                        var s = document.createElement("script");
+	                        s.textContent = 'navigator.msSaveBlob(new Blob(["' + $this.data("href").replace(/\r/g, "\\r").replace(/\n/g, "\\n") + '"]), "' + $this.attr("download") + '")';
+	                        document.body.appendChild(s);
 	                    });
-	                }
-	                else {
+	                } else {
 	                    $("#aria2c_btn, #idm_btn, #download_txt_btn").attr("href", "data:text/plain;charset=utf-8,");
 	                }
 	            },
-	            show: function () {
+	            show: function() {
 	                $("#download_ui").show();
 	            },
-	            onClose: function (callback) {
+	            onClose: function(callback) {
 	                $("#download_ui").on("click", "#aria2_download_close", callback);
 	            },
 	            //在数据框里面填充数据
-	            fillData: function (file_list) {
+	            fillData: function(file_list) {
 	                var files = [];
 	                var aria2c_txt = [];
 	                var idm_txt = [];
@@ -724,7 +770,7 @@
 	                    var length = file_list.length;
 	                    for (var i = 0; i < length; i++) {
 	                        var filename = (navigator.platform.indexOf("Win") != -1) ? JSON.stringify(file_list[i].name) : CORE.escapeString(file_list[i].name);
-	                        files.push("aria2c -c -s10 -k1M -x10 --enable-rpc=false -o " + filename + CORE.getHeader("aria2c_line") + " " + JSON.stringify(file_list[i].link) + "\n");
+	                        files.push("aria2c -c -s10 -k1M -x16 --enable-rpc=false -o " + filename + CORE.getHeader("aria2c_line") + " " + JSON.stringify(file_list[i].link) + "\n");
 	                        aria2c_txt.push([
 	                            file_list[i].link,
 	                            CORE.getHeader("aria2c_txt"),
@@ -749,10 +795,9 @@
 	                        $("#aria2c_btn").data("href", $("#aria2c_btn").data("href") + aria2c_txt.join(""));
 	                        $("#idm_btn").data("href", $("#idm_btn").data("href") + idm_txt.join(""));
 	                        $("#download_txt_btn").data("href", $("#download_txt_btn").data("href") + down_txt.join(""));
-	                    }
-	                    else {
+	                    } else {
 	                        $("#aria2c_btn").attr("href", $("#aria2c_btn").attr("href") + encodeURIComponent(aria2c_txt.join("")));
-	                        $("#idm_btn").attr("href", $("#idm_btn").attr("href") + encodeURIComponent(idm_txt.join("\r\n")));
+	                        $("#idm_btn").attr("href", $("#idm_btn").attr("href") + encodeURIComponent(idm_txt.join("")));
 	                        $("#download_txt_btn").attr("href", $("#download_txt_btn").attr("href") + encodeURIComponent(down_txt.join("")));
 	                    }
 	                    $("#copy_txt_btn").attr("data", $("#copy_txt_btn").attr("data") + down_txt.join(""));
@@ -763,6 +808,7 @@
 	    };
 	})();
 	module.exports = CORE;
+
 
 /***/ }
 /******/ ]);

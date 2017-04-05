@@ -42,7 +42,7 @@
                 CORE.showToast("正在获取文件列表... " + completedCount + "/" + (completedCount + folders.length - 1), "MODE_SUCCESS");
 
                 var path = folders.pop();
-                $.getJSON("/api/list", {
+                $.getJSON(window.location.origin + "/api/list", {
                     "dir": path,
                     "bdstoken": yunData.MYBDSTOKEN,
                     "channel": "chunlei",
@@ -72,8 +72,21 @@
                 });
             } else if (files.length != 0) {
                 CORE.showToast("正在获取下载地址... ", "MODE_SUCCESS");
+                
+                var counter = 0;
+                var tmp_files = {};
+                for (var fs_id in files) {
+                    tmp_files[fs_id] = files[fs_id];
+                    counter++;
+                    if (counter == 100) {
+                        setFileData(tmp_files);
+                        // Reset files and counters
+                        tmp_files = {};
+                        counter = 0;
+                    }
+                }
+                setFileData(tmp_files);
 
-                setFileData(files);
                 downloader.reset();
             } else {
                 CORE.showToast("一个文件都没有哦", "MODE_CAUTION");
@@ -110,30 +123,50 @@
     var sign = btoa(new Function("return " + yunData.sign2)()(yunData.sign3, yunData.sign1));
 
     function setFileData(files) {
-        $.get("/api/download", {
-            "type": "dlink",
-            "fidlist": JSON.stringify(Object.keys(files)),
-            "timestamp": yunData.timestamp,
-            "sign": sign,
-            "bdstoken": yunData.MYBDSTOKEN,
-            "channel": "chunlei",
-            "clienttype": 0,
-            "web": 1,
-            "app_id": 250528
-        }, null, "json").done(function(json) {
-            if (json.errno != 0) {
-                CORE.showToast("未知错误", "MODE_FAILURE");
-                console.log(json);
-                return;
-            }
+        if (localStorage.getItem("svip") == "true"){
+            $.get(window.location.origin + "/api/download", {
+                "type": "dlink",
+                "bdstoken": yunData.MYBDSTOKEN,
+                "fidlist": JSON.stringify(Object.keys(files)),
+                "timestamp": yunData.timestamp,
+                "sign": sign, 
+                "channel": "chunlei",
+                "clienttype": 0,
+                "web": 1,
+                "app_id": 250528
+            }, null, "json").done(function(json) {
+                var file_list = [];
+                if (json.errno != 0) {
+                    CORE.showToast("未知错误", "MODE_FAILURE");
+                    console.log(json);
+                    return;
+                }
+                for (var i = 0; i < json.dlink.length; i++) {
+                    var item = json.dlink[i];
+                    var path = files[item.fs_id];
+                    file_list.push({ name: path.substr(pathPrefixLength), link: item.dlink });
+                }
 
+                if (MODE == "TXT") {
+                    CORE.dataBox.show();
+                    CORE.dataBox.fillData(file_list);
+                } else {
+                    var paths = CORE.parseAuth(RPC_PATH);
+                    var rpc_list = CORE.aria2Data(file_list, paths[0], paths[2]);
+                    generateParameter(rpc_list);
+                }
+            }).fail(function(xhr) {
+                CORE.showToast("网络请求失败", "MODE_FAILURE");
+                console.log(JSON.stringify(xhr));
+            });
+        } else {
             var file_list = [];
-            for (var i = 0; i < json.dlink.length; i++) {
-                var item = json.dlink[i];
-                var path = files[item.fs_id];
-                file_list.push({ name: path.substr(pathPrefixLength), link: item.dlink });
+            var restAPIUrl = location.protocol + "//pcs.baidu.com/rest/2.0/pcs/";
+            for (var key in files) {
+                var path = files[key];
+                var dlink = restAPIUrl + 'file?method=download&app_id=250528&path=' + encodeURIComponent(path);
+                file_list.push({ name: path.substr(pathPrefixLength), link: dlink });
             }
-
             if (MODE == "TXT") {
                 CORE.dataBox.show();
                 CORE.dataBox.fillData(file_list);
@@ -142,10 +175,8 @@
                 var rpc_list = CORE.aria2Data(file_list, paths[0], paths[2]);
                 generateParameter(rpc_list);
             }
-        }).fail(function(xhr) {
-            CORE.showToast("网络请求失败", "MODE_FAILURE");
-            console.log(xhr);
-        });
+        }
+
     }
 
     window.addEventListener("message", function(event) {
@@ -178,7 +209,7 @@
     function getSelected() {
         var path = getHashParameter("path");
         var level = parseInt(localStorage.getItem("rpc_fold")) || 0;
-        console.log(level);
+
         if (path == undefined || path == "/" || level == -1) {
             pathPrefixLength = 1;
         } else if (level == 0) {

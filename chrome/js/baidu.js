@@ -114,7 +114,6 @@
 	            }
 	        }
 	    });
-
 	    if (window.yunData) {
 	        if (window.yunData.sign2) {
 	            var yunData = window.require('disk-system:widget/data/yunData.js').get();
